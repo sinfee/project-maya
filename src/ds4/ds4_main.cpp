@@ -125,7 +125,7 @@ std::vector<int> parse_ids(const std::string& s) {
 
 void usage() {
     std::fprintf(stderr,
-                 "maya-ds4 --pack <model>/maya-ds4 [--gpus 0,1,...] [--max-context N] [--reserve-mib N]\n"
+                 "maya-ds4 --pack <model>/maya-ds4 [--gpus 0,1,...] [--max-context N] [--reserve-mib N|A,B,...]\n"
                  "           [--vram-experts F] [--cpu-threads N] [--expert-profile FILE|none] [--no-expert-cache] [--verbose]\n"
                  "           [--tp N] [--threads on|off] [--prefill-chunk N] [--dspark on|off|none] [--dspark-conf F]\n"
                  "           [--suffix-draft N]\n"
@@ -3560,7 +3560,18 @@ int main(int argc, char** argv) {
         else if (a == "--gpus") {
             for (int g : parse_ids(val("--gpus"))) o.gpus.push_back(g);
         } else if (a == "--max-context") o.max_context = std::atoll(val("--max-context").c_str());
-        else if (a == "--reserve-mib") o.reserve_mib = std::atoll(val("--reserve-mib").c_str());
+        else if (a == "--reserve-mib") {   // N, or A,B,... one a GPU (in the order of --gpus)
+            const std::string v = val("--reserve-mib");
+            o.reserve_mib_each.clear();
+            for (size_t p = 0; p <= v.size();) {
+                size_t q = v.find(',', p);
+                if (q == std::string::npos) q = v.size();
+                if (q > p) o.reserve_mib_each.push_back(std::atoll(v.substr(p, q - p).c_str()));
+                p = q + 1;
+            }
+            if (!o.reserve_mib_each.empty()) o.reserve_mib = o.reserve_mib_each.front();
+            if (o.reserve_mib_each.size() < 2) o.reserve_mib_each.clear();   // one value: every GPU, as before
+        }
         else if (a == "--vram-experts") o.vram_experts = std::atof(val("--vram-experts").c_str());
         else if (a == "--cpu-threads") o.cpu_threads = std::atoi(val("--cpu-threads").c_str());
         else if (a == "--expert-profile") o.profile = val("--expert-profile");

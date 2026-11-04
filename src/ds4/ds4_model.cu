@@ -3819,7 +3819,7 @@ struct Model::Impl {
                 (n.find(".ffn.experts.") != std::string::npos ? exp_b : other_b) += (double) kt.second.bytes;
             }
             for (const Dev& d : devs)
-                room += std::max(0.0, (double) d.free0 - (double) ((size_t) o.reserve_mib << 20) -
+                room += std::max(0.0, (double) d.free0 - (double) o.reserve_bytes(d.id) -
                                           (prompt_par ? 1.5 : 0.4) * (1 << 30)) *
                         o.vram_experts;
             file_experts = exp_b - std::max(0.0, room - other_b) + (double) ram_margin() > (double) ram_avail();
@@ -3850,7 +3850,7 @@ struct Model::Impl {
                 (n.find(".ffn.experts.") != std::string::npos ? exp_b : other_b) += (double) kt.second.bytes;
             }
             for (const Dev& d : devs)
-                room += std::max(0.0, (double) d.free0 - (double) ((size_t) o.reserve_mib << 20) - 1.5 * (1 << 30)) *
+                room += std::max(0.0, (double) d.free0 - (double) o.reserve_bytes(d.id) - 1.5 * (1 << 30)) *
                         o.vram_experts;
             const double cpu_share = exp_b > 0 ? 1.0 - std::min(1.0, std::max(0.0, room - other_b) / exp_b) : 0.0;
             chunk = cpu_share >= 0.4 ? 8192 : 4096;
@@ -3962,14 +3962,15 @@ struct Model::Impl {
             l.dense_bytes = b;
         }
         const size_t head_b = mat_bytes("head") + (size_t) g.vocab * 4 + (16u << 20);
-        const size_t per_dev_fixed = (size_t) o.reserve_mib << 20;
+        // (--reserve-mib: each GPU its own reserve - o.reserve_bytes(id))
         const size_t kv_per_src_dev = 0;   // counted after the split
         (void) kv_per_src_dev;
         std::vector<double> avail(groups.size(), 0.0);
         double avail_sum = 0;
         for (size_t gi = 0; gi < groups.size(); ++gi) {
             for (int m : groups[gi].mem)
-                avail[gi] += std::max(0.0, (double) devs[(size_t) m].free0 - (double) per_dev_fixed - 400.0 * (1 << 20));
+                avail[gi] += std::max(0.0, (double) devs[(size_t) m].free0 - (double) o.reserve_bytes(devs[(size_t) m].id) -
+                                              400.0 * (1 << 20));
             avail_sum += avail[gi];
         }
         double need_sum = (double) head_b;
@@ -4119,7 +4120,7 @@ struct Model::Impl {
                 }
             }
             const Dev& d = devs[di];
-            const double room = (double) d.free0 - (double) ((size_t) o.reserve_mib << 20);
+            const double room = (double) d.free0 - (double) o.reserve_bytes(d.id);
             if (!whole || need <= 0 || need <= room) continue;
             char msg[1024];
             std::snprintf(msg, sizeof msg,
@@ -4640,7 +4641,7 @@ struct Model::Impl {
                 cudaSetDevice(d.id);
                 size_t fr = 0, tot = 0;
                 CK(mem_info(&fr, &tot));
-                room += std::max(0.0, (double) fr - (double) ((size_t) o.reserve_mib << 20)) * o.vram_experts;
+                room += std::max(0.0, (double) fr - (double) o.reserve_bytes(d.id)) * o.vram_experts;
             }
             for (const Layer& l : L) all += (double) l.blob * l.n_exp;
             const double need = std::max(0.0, all - room - (double) helper_cap);   // (DS4_HELPER: its pool's)
@@ -5144,7 +5145,7 @@ struct Model::Impl {
             const double rows = (double) lay_chunk(tc, C, nullptr, 2);
             bool ok = true;
             for (const Dev& d : devs) {
-                const double room = std::max(0.0, (double) d.free0 - (double) ((size_t) o.reserve_mib << 20)) * o.vram_experts -
+                const double room = std::max(0.0, (double) d.free0 - (double) o.reserve_bytes(d.id)) * o.vram_experts -
                                     other_b / (double) devs.size() - 0.6e9;
                 ok = ok && rows <= room / 2.0;
             }
@@ -5406,7 +5407,7 @@ struct Model::Impl {
                 size_t fr = 0, tot = 0;
                 CK(mem_info(&fr, &tot));
                 const double room =
-                    std::max(0.0, (double) fr - (double) ((size_t) o.reserve_mib << 20)) * o.vram_experts;
+                    std::max(0.0, (double) fr - (double) o.reserve_bytes(d.id)) * o.vram_experts;
                 c.ring_stride = stride;
                 if (rm == nullptr || rm[0] == '\0') {
                     const double link = link_h2d(d);
@@ -7199,7 +7200,7 @@ struct Model::Impl {
             cudaSetDevice(d.id);
             size_t fr = 0, tot = 0;
             CK(mem_info(&fr, &tot));
-            const double room_e = std::max(0.0, (double) fr - (double) ((size_t) o.reserve_mib << 20)) * o.vram_experts;
+            const double room_e = std::max(0.0, (double) fr - (double) o.reserve_bytes(d.id)) * o.vram_experts;
             const size_t need = lay_chunk(c, chunk, nullptr, 2);
             if (!mixed && room_e >= 2.0 * (double) need) continue;   // (the chunk default's bound: at most half the room)
             c.borrow = false;
@@ -7225,7 +7226,7 @@ struct Model::Impl {
                 size_t fr = 0, tot = 0;
                 CK(mem_info(&fr, &tot));
                 const double room_e =
-                    std::max(0.0, (double) fr - (double) ((size_t) o.reserve_mib << 20)) * o.vram_experts;
+                    std::max(0.0, (double) fr - (double) o.reserve_bytes(d.id)) * o.vram_experts;
                 lend = lend && room_e >= 2.0 * (double) lay_chunk(*chunks[(size_t) m], chunk, nullptr, 2);
             }
             if (!any || lend) continue;
@@ -7307,7 +7308,7 @@ struct Model::Impl {
                 if (gone > (double) (1 << 30))
                     std::fprintf(stderr, "ds4: WARNING - CUDA%d: %.1f GB went to other programs while the engine loaded "
                                          "(nvidia-smi lists them) - the experts' plan works around it\n", dm.id, gone / 1e9);
-                mroom.push_back(std::max(0.0, ((double) fr - (double) ((size_t) o.reserve_mib << 20))) * o.vram_experts);
+                mroom.push_back(std::max(0.0, ((double) fr - (double) o.reserve_bytes(dm.id))) * o.vram_experts);
                 own.push_back(mroom.back());
                 charged = charged || commit_charged(devs[(size_t) m]);
             }
@@ -15283,7 +15284,7 @@ struct Model::Impl {
             CK(cudaSetDevice(d.id));
             size_t fr = 0, tot = 0;
             CK(mem_info(&fr, &tot));
-            const double room = std::max(0.0, (double) fr - (double) ((size_t) o.reserve_mib << 20)) * o.vram_experts;
+            const double room = std::max(0.0, (double) fr - (double) o.reserve_bytes(d.id)) * o.vram_experts;
             if (exp_b <= room) continue;   // (every expert of its layers fits)
             if (ln_force.empty() &&
                 pcie::baseline_lane_off(ln_force, pcie::cal_get(ln_file, lane_dev_key((int) di) + " | lane"))) continue;

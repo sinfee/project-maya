@@ -4712,8 +4712,10 @@ int main(int argc, char** argv) {
         else if (a == "--expert-cache-device3") o.expert_cache_remote[2] = std::atoi(next("--expert-cache-device3"));
         else if (a == "--expert-cache-remote-placement")
             o.expert_cache_remote_placement = next("--expert-cache-remote-placement");
-        else if (a == "--vram-reserve-mib") {
-            o.vram_reserve_mib = std::atoi(next("--vram-reserve-mib"));
+        else if (a == "--vram-reserve-mib") {   // N, or FIRST,LATER (the same as --vram-reserve-later-mib LATER), the
+            const char* v = next("--vram-reserve-mib");   // per-GPU form maya-ds4 / maya-mm3 take
+            o.vram_reserve_mib = std::atoi(v);
+            if (const char* c = std::strchr(v, ',')) o.vram_reserve_later_mib = std::atoi(c + 1);
             o.vram_reserve_given = true;
         }
         else if (a == "--vram-reserve-later-mib") o.vram_reserve_later_mib = std::atoi(next("--vram-reserve-later-mib"));

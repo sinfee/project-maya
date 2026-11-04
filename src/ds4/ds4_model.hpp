@@ -29,6 +29,20 @@ struct Options {
     int64_t max_context = 32768;
     std::vector<int> gpus;            // empty: every visible GPU
     int64_t reserve_mib = 600;        // VRAM left free on each GPU
+    // --reserve-mib A,B,...: the VRAM left free per GPU, in the order of --gpus (else of the visible GPUs); the last
+    // value goes for any GPU past the list. Empty (one value given): reserve_mib on every GPU, as before. A card that
+    // drives the displays wants more than one that only computes (the desktop grows into it after the load).
+    std::vector<int64_t> reserve_mib_each;
+    size_t reserve_bytes(int dev_id) const {
+        if (reserve_mib_each.empty()) return (size_t) (reserve_mib > 0 ? reserve_mib : 0) << 20;
+        size_t i = dev_id > 0 ? (size_t) dev_id : 0;
+        if (!gpus.empty()) {
+            i = 0;
+            while (i < gpus.size() && gpus[i] != dev_id) ++i;
+        }
+        if (i >= reserve_mib_each.size()) i = reserve_mib_each.size() - 1;
+        return (size_t) (reserve_mib_each[i] > 0 ? reserve_mib_each[i] : 0) << 20;
+    }
     double vram_experts = 1.0;        // the share of the expert budget to use (tests: less, so the CPU lane works)
     // the CPU lane's threads: 0 a thread a physical core, or where the host offers it the performance cores or one
     // NUMA node's cores when measured faster at load; n: at most n, a thread a core

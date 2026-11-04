@@ -95,6 +95,12 @@ def _int(v, default=None):
         return default
 
 
+def _first(v):
+    """A per-GPU flag value ("1536,4608": --reserve-mib / --reserve-gb / --vram-reserve-mib, one a GPU) shown by its
+    first GPU's; a plain value as it is."""
+    return v.split(",")[0] if isinstance(v, str) else v
+
+
 def _float(v, default=None):
     try:
         f = float(str(v).strip())
@@ -273,13 +279,13 @@ def settings_of(cfg: dict) -> dict:
                    tp=_int(flag(args, "--tp"), 0), kv_cache=flag(args, "--kv-cache", "int8"),
                    kv_streaming=kvs == "on" or (kvs is None and _int(flag(args, "--kv-resident"), 0) > 0),
                    kv_resident=_int(flag(args, "--kv-resident")), cpu_threads=_int(flag(args, "--cpu-threads")),
-                   reserve_gb=_float(flag(args, "--reserve-gb")), prefill_chunk=_int(flag(args, "--chunk")),
+                   reserve_gb=_float(_first(flag(args, "--reserve-gb"))), prefill_chunk=_int(flag(args, "--chunk")),
                    cache_gb=_float(flag(args, "--cache-gb")), dspark_conf=_float(flag(args, "--dspark-conf")))
         return out
     if family(cfg) == "qwen":
         ec, pf = flag(args, "--expert-cache", "auto"), flag(args, "--prefill", "auto")
         ram = maya_names.lookup(env, "MAYA_EXPERT_RAM_GB")
-        out.update(images=bool(cfg.get("vision")), reserve_mib=_int(flag(args, "--vram-reserve-mib")),
+        out.update(images=bool(cfg.get("vision")), reserve_mib=_int(_first(flag(args, "--vram-reserve-mib"))),
                    draft="mtp" if flag(args, "--mtp") and flag(args, "--mtp-max-t") != "1" else "none",
                    expert_cache=None if ec == "auto" else _int(ec), prefill=None if pf == "auto" else _int(pf),
                    kv=flag(args, "--kv", "fp16"), ram_gb=_int(ram))
@@ -287,7 +293,7 @@ def settings_of(cfg: dict) -> dict:
     if family(cfg) == "deepseek":
         dspark = flag(args, "--dspark")
         out.update(images=flag(args, "--vision") != "off",
-                   reserve_mib=_int(flag(args, "--reserve-mib")), parallel=_int(flag(args, "--parallel"), 1),
+                   reserve_mib=_int(_first(flag(args, "--reserve-mib"))), parallel=_int(flag(args, "--parallel"), 1),
                    draft="none" if dspark == "none" or (dspark is None and not ds4_has_drafter(cfg)) else "dspark",
                    tp=_int(flag(args, "--tp"), 2), mmap=flag(args, "--mmap-experts", "auto"),   # (2: the engine's own)
                    prefill_chunk=_int(flag(args, "--prefill-chunk")), cpu_threads=_int(flag(args, "--cpu-threads")),
@@ -298,7 +304,7 @@ def settings_of(cfg: dict) -> dict:
             out["mmap"] = "auto"
         return out
     ec, pf = flag(args, "--expert-cache", "auto"), flag(args, "--prefill", "auto")
-    out.update(images=bool(cfg.get("vision")), reserve_mib=_int(flag(args, "--vram-reserve-mib")),
+    out.update(images=bool(cfg.get("vision")), reserve_mib=_int(_first(flag(args, "--vram-reserve-mib"))),
                parallel=_int(flag(args, "--parallel"), 1), draft="dflash2" if flag(args, "--dflash") else "mtp",
                expert_cache=None if ec == "auto" else _int(ec), prefill=None if pf == "auto" else _int(pf),
                kv_streaming=glm_streams(cfg), kv_resident=_int(flag(args, "--kv-resident")))

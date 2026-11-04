@@ -35,6 +35,20 @@ struct Options {
     int staging = 48;             // expert staging slots a GPU (each one expert's blob)
     double reserve_gb = -1;       // VRAM a GPU keeps free beyond the plan (< 0: 1.0, the tensor-parallel path 0.3 -
                                   // it allocates all it needs at the load)
+    // --reserve-gb A,B,...: per GPU in the order of --gpus (the last value for any GPU past the list); empty (one
+    // value given): reserve_gb on every GPU, as before. A card that drives the displays wants more than one that only
+    // computes. Each value >= 0 (a negative one: that GPU the default, as reserve_gb < 0)
+    std::vector<double> reserve_gb_each;
+    double reserve_gb_of(int dev_id) const {
+        if (reserve_gb_each.empty()) return reserve_gb;
+        size_t i = dev_id > 0 ? (size_t) dev_id : 0;
+        if (!gpus.empty()) {
+            i = 0;
+            while (i < gpus.size() && gpus[i] != dev_id) ++i;
+        }
+        if (i >= reserve_gb_each.size()) i = reserve_gb_each.size() - 1;
+        return reserve_gb_each[i];
+    }
     int resident_cap = -1;        // routed experts kept in VRAM a layer at most (-1: as many as fit)
     std::string profile;          // an expert profile (uint32 [layers][experts] routings): the most used stay in VRAM
     bool pin_pool = true;         // the experts not in VRAM assembled once in pinned host memory (a miss: one DMA)

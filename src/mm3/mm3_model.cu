@@ -908,7 +908,10 @@ struct Model::Impl {
         const double GB = (double) (1u << 30);
         const size_t kvpos = k::kv_bytes(o.kv_k, o.kv_v, (size_t) g.n_kv);   // a layer's K / V of one position
         const size_t idxpos = (size_t) g.ix_dim * 2;                         // ... and its index key
-        const double reserve = (o.reserve_gb < 0 ? 1.0 : o.reserve_gb) * GB + 1.0 * GB;
+        auto reserve_of = [&](size_t di) {   // (--reserve-gb: each GPU its own)
+            const double r = o.reserve_gb_of(D[di].id);
+            return (r < 0 ? 1.0 : r) * GB + 1.0 * GB;
+        };
         size_t blob_max = 0;
         for (int li = 0; li < g.n_layers; ++li)
             if (g.moe[(size_t) li]) blob_max = std::max(blob_max, blob_estimate(li));
@@ -937,7 +940,7 @@ struct Model::Impl {
         auto fits = [&](int ctx, int ring, int slots, std::string* worst) {
             bool ok = true;
             for (size_t di = 0; di < D.size(); ++di) {
-                const double need = fixed_of(di, slots) + kv_of(di, ctx, ring) + reserve;
+                const double need = fixed_of(di, slots) + kv_of(di, ctx, ring) + reserve_of(di);
                 if (need > (double) D[di].free0) {
                     ok = false;
                     if (worst)
@@ -1409,7 +1412,8 @@ struct Model::Impl {
             CK(cudaSetDevice(d.id));
             size_t fr = 0, tot = 0;
             CK(cudaMemGetInfo(&fr, &tot));
-            size_t reserve = (size_t) ((o.reserve_gb < 0 ? 1.0 : o.reserve_gb) * (1u << 30));
+            const double rg = o.reserve_gb_of(d.id);   // (--reserve-gb: each GPU its own)
+            size_t reserve = (size_t) ((rg < 0 ? 1.0 : rg) * (1u << 30));
             std::vector<int> moe_layers;
             for (int li : d.layers)
                 if (L[(size_t) li].moe) moe_layers.push_back(li);
@@ -1424,7 +1428,7 @@ struct Model::Impl {
                 for (int li : moe_layers) all += (size_t) g.n_exp * L[(size_t) li].blob;
                 const size_t gain = (size_t) (d.n_slots - kMinSlots) * d.slot_bytes;
                 size_t rfit = reserve;
-                if (o.reserve_gb < 0) {
+                if (rg < 0) {
                     rfit = (size_t) 1 << 29;
                     if (vis && vis->device() == d.id) rfit += vis->room_bytes();
                     rfit = std::min(rfit, reserve);

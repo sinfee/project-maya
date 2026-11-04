@@ -17,7 +17,7 @@
 // The vision tower alone (no experts loaded): a picture's rows, F32 [tokens][hidden] (tools/mm3/vision_ref.py's).
 //
 //   maya-mm3 --pack <model>/maya-mm3 --ids @prompt.txt [--gen N] [--dump-logits out.bin --last N]
-//            [--gpus 0,1,...] [--max-context N] [--chunk N] [--staging N] [--resident-cap N] [--reserve-gb X]
+//            [--gpus 0,1,...] [--max-context N] [--chunk N] [--staging N] [--resident-cap N] [--reserve-gb X|A,B,...]
 //            [--profile FILE] [--profile-out FILE] [--no-pin-pool] [--no-fast-decode]
 //
 // --ids: comma- or whitespace-separated token ids, or @FILE holding them.  --gen: greedy tokens after the prompt
@@ -1525,7 +1525,7 @@ int calibrate_prefill(mm3::Model& m, std::vector<int> ids, const std::string& ou
 int usage() {
     std::fprintf(stderr,
                  "usage: maya-mm3 --pack DIR --ids IDS|@FILE [--gen N] [--dump-logits FILE --last N] [--gpus LIST]\n"
-                 "                [--max-context N] [--chunk N] [--staging N] [--resident-cap N] [--reserve-gb X]\n"
+                 "                [--max-context N] [--chunk N] [--staging N] [--resident-cap N] [--reserve-gb X|A,B,...]\n"
                  "                [--vision on|off] [--vision-gpu I] [--images FILE] [--layer-split auto|L,L,...]\n"
                  "                [--tp 1|2|4] [--cache-gb X] [--kv-cache F|K,V (bf16 int8 fp8 fp4; default int8)]\n"
                  "                [--kv-rot on|off] [--kv-streaming on|off] [--expert-profile FILE]\n"
@@ -1611,7 +1611,18 @@ int main(int argc, char** argv) {
         else if (a == "--calibrate-decode") calib_dec = val();
         else if (a == "--staging") o.staging = std::atoi(val().c_str());
         else if (a == "--resident-cap") o.resident_cap = std::atoi(val().c_str());
-        else if (a == "--reserve-gb") o.reserve_gb = std::atof(val().c_str());
+        else if (a == "--reserve-gb") {   // X, or A,B,... one a GPU (in the order of --gpus)
+            const std::string v = val();
+            o.reserve_gb_each.clear();
+            for (size_t p = 0; p <= v.size();) {
+                size_t q = v.find(',', p);
+                if (q == std::string::npos) q = v.size();
+                if (q > p) o.reserve_gb_each.push_back(std::atof(v.substr(p, q - p).c_str()));
+                p = q + 1;
+            }
+            if (!o.reserve_gb_each.empty()) o.reserve_gb = o.reserve_gb_each.front();
+            if (o.reserve_gb_each.size() < 2) o.reserve_gb_each.clear();   // one value: every GPU, as before
+        }
         else if (a == "--profile") o.profile = val();
         else if (a == "--profile-out") profile_out = val();
         else if (a == "--no-pin-pool") o.pin_pool = false;
