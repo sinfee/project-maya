@@ -8974,7 +8974,8 @@ struct Model::Impl {
     // not kept), and kept free beside the reserve from the next start on (keep_b); a start that finds the reserve
     // short says so, with what the next start keeps free.  MAYA_DS4_LATE_MB=<n>: n MiB a GPU instead of the
     // measured figure (0: the reserve alone, v1.1.72's plan).
-    size_t keep_b(const Dev& d) const { return ((size_t) std::max<int64_t>(0, o.reserve_mib) << 20) + d.late; }
+    // (--reserve-mib A,B,...: each GPU its own reserve - o.reserve_bytes(id))
+    size_t keep_b(const Dev& d) const { return o.reserve_bytes(d.id) + d.late; }
     int reserve_short_mib = 0;   // (> 0: this start came out short of the reserve; the next keeps this many MiB beside it)
     std::string late_file() const {
         const char* f = std::getenv("MAYA_DS4_LATE_FILE");
@@ -8998,13 +8999,12 @@ struct Model::Impl {
                 d.late_kept = v.empty() ? 0 : (size_t) std::max(0LL, std::atoll(v.c_str())) << 20;
                 // (the default reserve, not asked for: v1.1.72's plan wherever it holds what the run takes after the
                 //  plan with 128 MiB to spare - only a PC whose default reserve it uses up keeps more free)
-                d.late = vramlate::kept_for(d.late_kept, (size_t) std::max<int64_t>(0, o.reserve_mib) << 20,
-                                            o.reserve_given);
+                d.late = vramlate::kept_for(d.late_kept, o.reserve_bytes(d.id), o.reserve_given);
             }
             if (d.late > 0)
                 std::fprintf(stderr, "ds4: CUDA%d keeps %zu MiB free beside the %lld MiB reserve: what this PC's start "
                                      "and requests allocate after the experts' plan%s\n", d.id, d.late >> 20,
-                             (long long) o.reserve_mib, fixed != nullptr ? " (MAYA_DS4_LATE_MB)" : " (measured before)");
+                             (long long) (o.reserve_bytes(d.id) >> 20), fixed != nullptr ? " (MAYA_DS4_LATE_MB)" : " (measured before)");
         }
     }
     // once loaded (`loaded`) and between requests: the least free VRAM this run has seen against the reserve - the
@@ -9016,9 +9016,9 @@ struct Model::Impl {
         int cur = 0;
         if (cudaGetDevice(&cur) != cudaSuccess) (void) cudaGetLastError();
         const std::string f = late_file();
-        const int64_t res = (int64_t) std::max<int64_t>(0, o.reserve_mib) << 20;
         for (size_t di = 0; di < devs.size(); ++di) {
             Dev& d = devs[di];
+            const int64_t res = (int64_t) o.reserve_bytes(d.id);
             size_t fr = 0, tot = 0;
             if (cudaSetDevice(d.id) != cudaSuccess || mem_info(&fr, &tot) != cudaSuccess) {
                 (void) cudaGetLastError();
