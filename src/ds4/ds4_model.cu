@@ -4004,7 +4004,7 @@ struct Model::Impl {
                     const int nm = (int) groups[(size_t) gi].mem.size();
                     double mn = 1e300;
                     for (int m : groups[(size_t) gi].mem)
-                        mn = std::min(mn, std::max(0.0, (double) devs[(size_t) m].free0 - (double) per_dev_fixed -
+                        mn = std::min(mn, std::max(0.0, (double) devs[(size_t) m].free0 - (double) o.reserve_bytes(devs[(size_t) m].id) -
                                                             400.0 * (1 << 20) - 1.1 * (1 << 30)));   // (the chunk's buffers)
                     cap[(size_t) gi] = mn * nm;
                 }
