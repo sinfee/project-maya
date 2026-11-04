@@ -4258,7 +4258,7 @@ struct Model::Impl {
                 const double give = std::min((double) d.late, need - room);
                 const size_t left = (size_t) (((double) d.late - give) / (double) vramlate::kStep) * (size_t) vramlate::kStep;
                 std::fprintf(stderr, "ds4: CUDA%d keeps %zu instead of %zu MiB free beside the %lld MiB reserve: the dense "
-                                     "weights need the room\n", d.id, left >> 20, d.late >> 20, (long long) o.reserve_mib);
+                                     "weights need the room\n", d.id, left >> 20, d.late >> 20, (long long) (o.reserve_bytes(d.id) >> 20));
                 d.late = left, d.late_room = 0;
                 room = (double) d.free0 - (double) keep_b(d);
                 if (need <= room) continue;
@@ -4279,7 +4279,7 @@ struct Model::Impl {
                                                   " GB of VRAM or more"
                                             : std::string("GPUs with more free VRAM"))
                               .c_str(),
-                          o.reserve_mib > 0 && need <= (double) d.free0 ? ", or a lower --vram-reserve-mib" : "");
+                          o.reserve_bytes(d.id) > 0 && need <= (double) d.free0 ? ", or a lower --vram-reserve-mib" : "");
             err = msg;
             return false;
         }
@@ -9009,7 +9009,8 @@ struct Model::Impl {
     // not kept), and kept free beside the reserve from the next start on (keep_b); a start that finds the reserve
     // short says so, with what the next start keeps free.  MAYA_DS4_LATE_MB=<n>: n MiB a GPU instead of the
     // measured figure (0: the reserve alone, v1.1.72's plan).
-    size_t keep_b(const Dev& d) const { return ((size_t) std::max<int64_t>(0, o.reserve_mib) << 20) + d.late; }
+    // (--reserve-mib A,B,...: each GPU its own reserve - o.reserve_bytes(id))
+    size_t keep_b(const Dev& d) const { return o.reserve_bytes(d.id) + d.late; }
     int reserve_short_mib = 0;   // (> 0: this start came out short of the reserve; the next keeps this many MiB beside it)
     std::string late_file() const {
         const char* f = std::getenv("MAYA_DS4_LATE_FILE");
@@ -9037,13 +9038,13 @@ struct Model::Impl {
                 d.late_kept = v.empty() ? 0 : (size_t) std::max(0LL, std::atoll(v.c_str())) << 20;
                 // (the default reserve, not asked for: v1.1.72's plan wherever it holds what the run takes after the
                 //  plan with 128 MiB to spare - only a PC whose default reserve it uses up keeps more free)
-                d.late = vramlate::kept_for(d.late_kept, (size_t) std::max<int64_t>(0, o.reserve_mib) << 20,
-                                            vramlate::asked(o.reserve_given, (size_t) std::max<int64_t>(0, o.reserve_mib) << 20));
+                d.late = vramlate::kept_for(d.late_kept, o.reserve_bytes(d.id),
+                                            vramlate::asked(o.reserve_given, o.reserve_bytes(d.id)));
             }
             if (d.late > 0)
                 std::fprintf(stderr, "ds4: CUDA%d keeps %zu MiB free beside the %lld MiB reserve%s\n", d.id, d.late >> 20,
-                             (long long) o.reserve_mib, vramlate::why(fixed != nullptr,
-                                           vramlate::asked(o.reserve_given, (size_t) std::max<int64_t>(0, o.reserve_mib) << 20)).c_str());
+                             (long long) (o.reserve_bytes(d.id) >> 20), vramlate::why(fixed != nullptr,
+                                           vramlate::asked(o.reserve_given, o.reserve_bytes(d.id))).c_str());
         }
     }
     // once loaded (`loaded`) and between requests: the least free VRAM this run has seen against the reserve - the
@@ -9055,9 +9056,9 @@ struct Model::Impl {
         int cur = 0;
         if (cudaGetDevice(&cur) != cudaSuccess) (void) cudaGetLastError();
         const std::string f = late_file();
-        const int64_t res = (int64_t) std::max<int64_t>(0, o.reserve_mib) << 20;
         for (size_t di = 0; di < devs.size(); ++di) {
             Dev& d = devs[di];
+            const int64_t res = (int64_t) o.reserve_bytes(d.id);
             size_t fr = 0, tot = 0;
             if (cudaSetDevice(d.id) != cudaSuccess || mem_info(&fr, &tot) != cudaSuccess) {
                 (void) cudaGetLastError();
@@ -9068,7 +9069,7 @@ struct Model::Impl {
                              d.id, fr >> 20, (long long) (res >> 20),
                              d.late > 0 ? (", " + std::to_string(d.late >> 20) + " MiB more kept beside it").c_str() : "");
             vramlate::Gpu lg{d.late, d.late_kept, d.fr_min};   // (the engines' shared step: src/core/vram_late.hpp)
-            const bool asked = vramlate::asked(o.reserve_given, (size_t) std::max<int64_t>(0, o.reserve_mib) << 20);
+            const bool asked = vramlate::asked(o.reserve_given, (size_t) res);
             const vramlate::Step st = vramlate::check(lg, fr, tot, (size_t) res, asked, d.late_room);
             d.fr_min = lg.fr_min, d.late_kept = lg.kept;
             if (!st.moved) continue;
