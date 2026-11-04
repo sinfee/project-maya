@@ -474,7 +474,10 @@ struct TpEngine::Impl {
     // member's allocations are made only from what it has free now, after everything else of the load; one that fails
     // is left out (its experts stay as they were)
     void place_extra() {
-        const size_t reserve = (size_t) ((o.reserve_gb < 0 ? 0.3 : o.reserve_gb) * (1u << 30));
+        auto reserve_of = [&](int id) {   // (--reserve-gb: each GPU its own)
+            const double r = o.reserve_gb_of(id);
+            return (size_t) ((r < 0 ? 0.3 : r) * (1u << 30));
+        };
         constexpr size_t kAllocSlack = (size_t) 2 << 20;   // (cudaMalloc's granularity, a layer's allocation)
         const int saved = acat;
         acat = kAPool;
@@ -504,6 +507,7 @@ struct TpEngine::Impl {
                     cudaGetLastError();
                     continue;
                 }
+                const size_t reserve = reserve_of(m.id);
                 size_t room = fr > reserve ? fr - reserve : 0;
                 std::map<int, std::vector<int>> take;   // layer -> the experts this member takes, in the candidates' order
                 for (const C& x : c) {
@@ -985,7 +989,8 @@ struct TpEngine::Impl {
                 TK(cudaSetDevice(M[(size_t) mi].id));
                 size_t fr = 0, tot = 0;
                 TK(cudaMemGetInfo(&fr, &tot));
-                const size_t reserve = (size_t) ((o.reserve_gb < 0 ? 0.3 : o.reserve_gb) * (1u << 30));
+                const double rg = o.reserve_gb_of(M[(size_t) mi].id);
+                const size_t reserve = (size_t) ((rg < 0 ? 0.3 : rg) * (1u << 30));
                 budget = std::min(budget, fr > reserve ? fr - reserve : 0);
             }
             std::vector<int> ml;
