@@ -6954,7 +6954,7 @@ struct Model::Impl {
             if (n.find(".ffn.experts.") != std::string::npos) exp_b += (double) kt.second.bytes;
         }
         for (const Dev& d : devs)
-            room += std::max(0.0, (double) d.free0 - (double) ((size_t) o.reserve_mib << 20)) * o.vram_experts;
+            room += std::max(0.0, (double) d.free0 - (double) o.reserve_bytes(d.id)) * o.vram_experts;
         if (exp_b <= 0 || all_b <= room) return true;   // (every expert fits: the lead keeps them, no hand-offs)
         const int n = g.n_mtp, base = n / nm, extra = n % nm;
         for (int m = 0; m < nm; ++m)
