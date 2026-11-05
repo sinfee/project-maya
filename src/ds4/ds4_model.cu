@@ -5286,9 +5286,47 @@ struct Model::Impl {
     // PCIe 3 x16), once a device; 0: not measured.  The copies and their events on the legacy stream, as the
     // ordinary load copies: timed on a stream of their own (made for it, destroyed after) they left decode ~20%
     // slower for the whole run on 2x CMP 170HX (PCIe Gen2), though nothing used that stream again (#609)
+    //
+    // A GPU that idles at the load (P8) can sit on a down-trained PCIe link (Gen1) through those ~10 ms, and the ring
+    // is then sized - and the fast-link rule (8 GB/s) decided - by a few GB/s of a link that runs at its full speed
+    // once the GPU works (RTX PRO 5000 Blackwell, Gen5 x16: 3.7 GB/s measured at the load, 55 GB/s by bandwidthTest).
+    // MAYA_DS4_LINK_WARM_MS (default 300): the copies keep the link busy that long first, so it trains up before
+    // the measure (0: no warm-up, as before).  MAYA_DS4_LINK_GBPS=A,B,...: the link of each GPU in GB/s, in the order
+    // of --gpus (else of the visible GPUs; the last value for any GPU past the list), no measure; 0 or an empty
+    // entry: that GPU measured
+    double link_given(int dev_id) const {
+        const char* v = ds4_env("DS4_LINK_GBPS");
+        if (v == nullptr || v[0] == '\0') return 0;
+        std::vector<double> each;
+        const std::string sv = v;
+        for (size_t p = 0; p <= sv.size();) {
+            size_t q = sv.find(',', p);
+            if (q == std::string::npos) q = sv.size();
+            each.push_back(q > p ? std::atof(sv.substr(p, q - p).c_str()) : 0.0);
+            p = q + 1;
+        }
+        if (each.empty()) return 0;
+        size_t i = dev_id > 0 ? (size_t) dev_id : 0;
+        if (!o.gpus.empty()) {
+            i = 0;
+            while (i < o.gpus.size() && o.gpus[i] != dev_id) ++i;
+        }
+        if (i >= each.size()) i = each.size() - 1;
+        return each[i] > 0 ? each[i] * 1e9 : 0;
+    }
     std::map<int, double> link_bw;
     double link_h2d(Dev& d) {
         if (auto it = link_bw.find(d.id); it != link_bw.end()) return it->second;
+        if (const double given = link_given(d.id); given > 0) {
+            std::fprintf(stderr, "ds4: CUDA%d host link %.1f GB/s from MAYA_DS4_LINK_GBPS (not measured)\n", d.id,
+                         given / 1e9);
+            link_bw[d.id] = given;
+            return given;
+        }
+        static const int warm_ms = [] {
+            const char* w = ds4_env("DS4_LINK_WARM_MS");
+            return w != nullptr ? std::max(0, std::atoi(w)) : 300;
+        }();
         const size_t nb = (size_t) 32 << 20;
         void* h = nullptr;
         void* v = nullptr;
@@ -5299,6 +5337,20 @@ struct Model::Impl {
         if (cudaHostAlloc(&h, nb, cudaHostAllocPortable) == cudaSuccess && cudaMalloc(&v, nb) == cudaSuccess &&
             cudaEventCreate(&e0) == cudaSuccess && cudaEventCreate(&e1) == cudaSuccess) {
             std::memset(h, 0, nb);
+            // (the warm-up: back-to-back copies for warm_ms, the link busy so it leaves an idle GPU's low speed)
+            double warm_bw = 0;
+            if (warm_ms > 0) {
+                const auto t0 = std::chrono::steady_clock::now();
+                size_t moved = 0;
+                while (std::chrono::steady_clock::now() - t0 < std::chrono::milliseconds(warm_ms)) {
+                    if (cudaMemcpyAsync(v, h, nb, cudaMemcpyHostToDevice, s) != cudaSuccess ||
+                        cudaStreamSynchronize(s) != cudaSuccess)
+                        break;
+                    moved += nb;
+                }
+                const double el = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+                warm_bw = el > 0 ? (double) moved / el : 0;
+            }
             for (int rep = 0; rep < 4; ++rep) {
                 float ms = 0;
                 if (cudaEventRecord(e0, s) != cudaSuccess || cudaMemcpyAsync(v, h, nb, cudaMemcpyHostToDevice, s) != cudaSuccess ||
@@ -5307,6 +5359,10 @@ struct Model::Impl {
                     break;
                 if (rep > 0 && ms > 0) best = std::max(best, (double) nb / (ms / 1000.0));   // (the first warms up)
             }
+            if (warm_ms > 0)
+                std::fprintf(stderr, "ds4: CUDA%d host link %.1f GB/s after a %d ms warm-up (%.1f GB/s through it; "
+                                     "MAYA_DS4_LINK_WARM_MS=0: no warm-up, MAYA_DS4_LINK_GBPS sets it)\n",
+                             d.id, best / 1e9, warm_ms, warm_bw / 1e9);
         }
         if (e0) cudaEventDestroy(e0);
         if (e1) cudaEventDestroy(e1);
