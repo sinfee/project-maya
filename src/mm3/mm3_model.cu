@@ -1595,7 +1595,7 @@ struct Model::Impl {
                               d.id, pr.name, (unsigned) pr.pciBusID, (unsigned) pr.pciDeviceID, tot >> 20, o.max_ctx,
                               o.seqs, d.n_slots, o.resident_cap, (int) o.dspark, vis != nullptr ? 1 : 0);
                 reserve += late.read(di, "mm3 late|" + tkey + "|pack " + o.pack + kb, reserve,
-                                     maya::vramlate::asked(o.reserve_gb >= 0, reserve), d.id);
+                                     maya::vramlate::asked(o.reserve_gb_of(d.id) >= 0, reserve), d.id);
                 late.set_reserve(di, reserve - late.gpus[di].g.late);
                 late.set_room(di, fr > reserve ? fr - reserve : 0);   // (the experts' room: all of it can give way)
             }
