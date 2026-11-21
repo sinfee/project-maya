@@ -414,7 +414,7 @@ def settings_of(cfg: dict) -> dict:
         out.update(images=flag(args, "--vision") != "off" and hy4_has_vision(cfg),
                    draft="mtp" if "--mtp" in [str(a) for a in args] else
                    "dfly2" if "--dfly2" in [str(a) for a in args] else "none",
-                   tp="auto" if tp == "auto" else _int(tp, "auto"), reserve_gb=_float(flag(args, "--reserve-gb")),
+                   tp="auto" if tp == "auto" else _int(tp, "auto"), reserve_gb=_float(_first(flag(args, "--reserve-gb"))),
                    prefill_chunk=_int(flag(args, "--chunk")), cpu_threads=_int(flag(args, "--cpu-threads")),
                    kv=flag(args, "--kv", "auto"))     # (the latent cache's rows: auto, the engine's default)
         return out
@@ -1084,7 +1084,7 @@ def hy4_room(cfg: dict) -> dict | None:
         def one(ctx: int, q8: bool):
             return maya.hy4_config_need_gib(inst.get("hy4_quant") or "", inst.get("layout") or maya.HY4_STANDARD, ctx,
                                             chunk=_int(flag(args, "--chunk")) if own or ctx == cur else None,
-                                            reserve_gb=_float(flag(args, "--reserve-gb")), q8=q8,
+                                            reserve_gb=_float(_first(flag(args, "--reserve-gb"))), q8=q8,
                                             mtp="--mtp" in [str(x) for x in args],
                                             dfly2="--dfly2" in [str(x) for x in args])
 
@@ -1107,7 +1107,7 @@ def hy4_room(cfg: dict) -> dict | None:
                 streamed[ctx] = maya.hy4_config_stream(
                     inst.get("hy4_quant") or "", inst.get("layout") or maya.HY4_STANDARD, ctx, usable, ram,
                     chunk=_int(flag(args, "--chunk")) if own or ctx == cur else None,
-                    reserve_gb=_float(flag(args, "--reserve-gb")), mtp="--mtp" in [str(x) for x in args], kv=kv)
+                    reserve_gb=_float(_first(flag(args, "--reserve-gb"))), mtp="--mtp" in [str(x) for x in args], kv=kv)
             return streamed[ctx]
 
         def need(ctx: int):
@@ -1205,7 +1205,7 @@ def hy4_chunk_again(cfg: dict, new: dict) -> tuple:
     fit = hy4_refit(new)
     own = base
     if fit and fit.get("chunk"):
-        plain = _float(flag(args, "--reserve-gb")) == float(plan.get("reserve_gb", -1))   # (its rows: hy4_refit's kv)
+        plain = _float(_first(flag(args, "--reserve-gb"))) == float(plan.get("reserve_gb", -1))   # (its rows: hy4_refit's kv)
         own = int(fit["chunk"]) if plain else base
     if chunk != was:
         # (changed in this save: its user's from now on - unless it is the very one the setup would write here, or

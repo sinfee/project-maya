@@ -27,6 +27,20 @@ struct Options {
     int ring_slack = 16384;       // positions a sliding-window ring keeps beyond its window (how far a rewind may go
                                   // without starting over)
     double reserve_gb = 0.75;     // VRAM each GPU keeps free beyond the plan
+    // --reserve-gb A,B,...: per GPU in the order of --gpus (the last value for any GPU past the list); empty (one
+    // value given): reserve_gb on every GPU, as before. A card that drives the displays wants more than one that only
+    // computes (as maya-ds4's --reserve-mib and maya-mm3's --reserve-gb lists)
+    std::vector<double> reserve_gb_each;
+    double reserve_gb_of(int dev_id) const {
+        if (reserve_gb_each.empty()) return reserve_gb;
+        size_t i = dev_id > 0 ? (size_t) dev_id : 0;
+        if (!gpus.empty()) {
+            i = 0;
+            while (i < gpus.size() && gpus[i] != dev_id) ++i;
+        }
+        if (i >= reserve_gb_each.size()) i = reserve_gb_each.size() - 1;
+        return reserve_gb_each[i];
+    }
     int prefill_chunk = 0;        // a prompt's tokens a forward takes at once (more than k::kMaxWin: the GEMMs); 0: auto -
                                   // 4096, 2048 or 1024, the largest the VRAM holds beside the model and the pictures
     double vram_experts = 1.0;    // the share of each layer's routed experts kept in VRAM at most (the plan takes less

@@ -1418,7 +1418,18 @@ struct Model::Impl {
         }
         kv_auto_reset();
         std::vector<double> free_b(devs.size());
-        for (size_t i = 0; i < devs.size(); ++i) free_b[i] = free0[i] - o.reserve_gb * 1e9 - (double) scratch_bytes();
+        for (size_t i = 0; i < devs.size(); ++i)   // (--reserve-gb: each GPU its own)
+            free_b[i] = free0[i] - o.reserve_gb_of(devs[i]) * 1e9 - (double) scratch_bytes();
+        if (!o.reserve_gb_each.empty()) {   // (--reserve-gb A,B,...: each GPU's own said once; also how a launcher
+                                            //  tells that this engine takes the per-GPU list)
+            std::string s = "INFO VRAM kept free a GPU (--reserve-gb):";
+            char rb[48];
+            for (size_t i = 0; i < devs.size(); ++i) {
+                std::snprintf(rb, sizeof rb, " GPU%d %.2f GB", devs[i], o.reserve_gb_of(devs[i]));
+                s += rb;
+            }
+            if (std::find(info.begin(), info.end(), s) == info.end()) info.push_back(s);
+        }
         // the main GPU: the head's, the drafts', the window's coordination - the fastest memory (then the most VRAM)
         if (o.main_gpu >= (int) devs.size()) {
             err = "--main-gpu " + std::to_string(o.main_gpu) + ": " + std::to_string(devs.size()) + " GPUs given";

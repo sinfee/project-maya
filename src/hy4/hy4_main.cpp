@@ -1165,7 +1165,18 @@ int main(int argc, char** argv) {
             const std::string v = next();
             o.layer_split = v == "auto" ? std::vector<int>{} : parse_list(v);
         }
-        else if (a == "--reserve-gb") o.reserve_gb = std::atof(next().c_str());
+        else if (a == "--reserve-gb") {   // X, or A,B,... one a GPU (in the order of --gpus)
+            const std::string v = next();
+            o.reserve_gb_each.clear();
+            for (size_t p = 0; p <= v.size();) {
+                size_t q = v.find(',', p);
+                if (q == std::string::npos) q = v.size();
+                if (q > p) o.reserve_gb_each.push_back(std::atof(v.substr(p, q - p).c_str()));
+                p = q + 1;
+            }
+            if (!o.reserve_gb_each.empty()) o.reserve_gb = o.reserve_gb_each.front();
+            if (o.reserve_gb_each.size() < 2) o.reserve_gb_each.clear();   // one value: every GPU, as before
+        }
         else if (a == "--room-report") o.room_report = true;
         else if (a == "--chunk") {   // (auto, the default: the engine's plan picks it)
             const std::string v = next();
