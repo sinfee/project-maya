@@ -1869,6 +1869,7 @@ struct Model::Impl {
         }
         kv_auto_reset();
         std::vector<double> free_b(devs.size());
+        // (--reserve-gb A,B,...: each GPU its own - o.reserve_gb_of)
         if (late.gpus.size() != devs.size()) {
             late.init("hy4", o.pack, "MAYA_HY4_LATE_FILE", "MAYA_HY4_LATE_MB", devs.size());
             late_devs = devs;
@@ -1877,13 +1878,23 @@ struct Model::Impl {
                 int integrated = 0;
                 if (cudaDeviceGetAttribute(&integrated, cudaDevAttrIntegrated, devs[i]) != cudaSuccess) cudaGetLastError();
                 if (integrated == 0)
-                    (void) late.read(i, key + "|gpu " + std::to_string(i), (size_t) std::max(0.0, o.reserve_gb * 1e9),
+                    (void) late.read(i, key + "|gpu " + std::to_string(i), (size_t) std::max(0.0, o.reserve_gb_of(devs[i]) * 1e9),
                                      o.reserve_given, devs[i]);
             }
         }
-        for (size_t i = 0; i < devs.size(); ++i) free_b[i] = free0[i] - o.reserve_gb * 1e9 - (double) scratch_bytes() -
+        for (size_t i = 0; i < devs.size(); ++i) free_b[i] = free0[i] - o.reserve_gb_of(devs[i]) * 1e9 - (double) scratch_bytes() -
                                                        (double) late.gpus[i].g.late;
         for (size_t i = 0; i < devs.size(); ++i) late.set_room(i, (size_t) std::max(0.0, free_b[i]));
+        if (!o.reserve_gb_each.empty()) {   // (--reserve-gb A,B,...: each GPU's own said once; also how a launcher
+                                            //  tells that this engine takes the per-GPU list)
+            std::string s = "INFO VRAM kept free a GPU (--reserve-gb):";
+            char rb[48];
+            for (size_t i = 0; i < devs.size(); ++i) {
+                std::snprintf(rb, sizeof rb, " GPU%d %.2f GB", devs[i], o.reserve_gb_of(devs[i]));
+                s += rb;
+            }
+            if (std::find(info.begin(), info.end(), s) == info.end()) info.push_back(s);
+        }
         // the main GPU: the head's, the drafts', the window's coordination - the fastest memory (then the most VRAM)
         if (o.main_gpu >= (int) devs.size()) {
             err = "--main-gpu " + std::to_string(o.main_gpu) + ": " + std::to_string(devs.size()) + " GPUs given";
